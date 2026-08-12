@@ -457,8 +457,8 @@ with st.sidebar:
     ], index=1)
     model_name  = model_opt.split()[0]
     cam_label   = st.text_input("Camera ID", "NDLS-P1-C04")
-    conf_thresh = st.slider("Confidence",          0.10, 0.60, 0.15, 0.05)
-    iou_thresh  = st.slider("IoU (crowd: high)",   0.40, 0.80, 0.60, 0.05)
+    conf_thresh = st.slider("Confidence",          0.05, 0.80, 0.15, 0.05)
+    iou_thresh  = st.slider("IoU (crowd: high)",   0.20, 0.80, 0.65, 0.05)
     crowd_limit = st.slider("Crowd alert at",      2,    200,  15)
     skip_n      = st.slider("Frame skip",          1,    3,    1)
     st.divider()
@@ -558,22 +558,13 @@ def snap(frame):
     ok,buf=cv2.imencode(".jpg",frame,[cv2.IMWRITE_JPEG_QUALITY,76])
     return base64.b64encode(buf.tobytes()).decode("utf-8") if ok else None
 
-def detect(frame, conf, iou):
-    kw=dict(source=frame,classes=[PERSON_CLS],conf=conf,iou=iou,
-            imgsz=1280,agnostic_nms=True,verbose=False)
-    for tr in ["bytetrack.yaml","botsort.yaml"]:
-        try: return model.track(persist=True,tracker=tr,**kw)[0], True
-        except Exception: pass
+def detect_all(frame, conf, iou):
+    kw=dict(source=frame,conf=conf,iou=iou,imgsz=1280,verbose=False)
+    tr="custom_tracker.yaml" if Path("custom_tracker.yaml").exists() else "bytetrack.yaml"
+    try: return model.track(persist=True,tracker=tr,**kw)[0], True
+    except Exception: pass
     try: return model.predict(**kw)[0], False
     except Exception: return None, False
-
-def detect_threats(frame, conf, iou):
-    try:
-        r=model.predict(source=frame,conf=max(conf,0.30),iou=iou,imgsz=640,verbose=False)[0]
-        nm=model.names
-        return [(nm.get(int(b.cls[0]),""),b.xyxy[0].tolist())
-                for b in (r.boxes or []) if nm.get(int(b.cls[0]),"") in THREATS]
-    except Exception: return []
 
 def blur_face(frame, x1, y1, x2, y2):
     crop=frame[y1:y2,x1:x2]
@@ -684,7 +675,7 @@ def snap_gallery(snaps, n=9):
         for col, s in zip(cols, row):
             bc = sc.get(s["sev"], "#505050")
             with col:
-                st.image(base64.b64decode(s["img"]), use_container_width=True)
+                st.image(base64.b64decode(s["img"]), width="stretch")
                 st.markdown(
                     f"<div style='background:#141414;border-left:2px solid {bc};"
                     f"padding:4px 8px;margin-top:-4px'>"
@@ -772,7 +763,7 @@ elif page == "Station Analytics":
         if hist:
             df_h = pd.DataFrame(hist).set_index("t")[["people","zone"]]
             df_h.columns=["Total People","In Crowd Zone"]
-            st.line_chart(df_h, height=190, use_container_width=True)
+            st.line_chart(df_h, height=190, width="stretch")
         else:
             st.markdown("<div class='rv-empty'>Awaiting data from Live Command Center.</div>", unsafe_allow_html=True)
         st.markdown("</div></div>", unsafe_allow_html=True)
@@ -836,7 +827,7 @@ elif page == "Live Command Center":
         upload = st.file_uploader("CCTV footage", type=["mp4","avi","mov","mkv"],
                                    label_visibility="collapsed")
 
-    start = st.button("▶  Start AI Processing", type="primary", use_container_width=True)
+    start = st.button("▶  Start AI Processing", type="primary", width="stretch")
     st.markdown("</div>", unsafe_allow_html=True)
 
     if start:
@@ -872,60 +863,50 @@ elif page == "Live Command Center":
             if skip_n > 1 and frame_idx % skip_n != 0: continue
 
             h0,w0=frame.shape[:2]
-            if w0>960: s=960/w0; frame=cv2.resize(frame,(960,int(h0*s)),interpolation=cv2.INTER_LINEAR)
+            if w0>1280: s=1280/w0; frame=cv2.resize(frame,(1280,int(h0*s)),interpolation=cv2.INTER_LINEAR)
             H,W=frame.shape[:2]
 
             crowd_zone=(int(W*0.05),HUD+int((H-HUD)*0.04),int(W*0.95),int(H*0.92))
             restr_zone=(int(W*0.02),HUD,int(W*0.28),HUD+int((H-HUD)*0.42))
             staff_zone=(int(W*0.68),int(H*0.60),int(W*0.97),int(H*0.95))
 
-            result,has_ids=detect(frame,conf_thresh,iou_thresh)
+            result,has_ids=detect_all(frame,conf_thresh,iou_thresh)
             person_count=0; zone_count=0; staff_count=0; faces_blurred=0; pcents=[]
+            threat_hits=[]
 
             if result is not None and result.boxes is not None and len(result.boxes):
+                nm=model.names
                 for b in result.boxes:
-                    if int(b.cls[0])!=PERSON_CLS: continue
-                    x1,y1,x2,y2=map(int,b.xyxy[0].tolist())
-                    x1,y1=max(0,x1),max(0,y1); x2,y2=min(W-1,x2),min(H-1,y2)
-                    if x2<=x1 or y2<=y1: continue
-                    cx,cy=(x1+x2)//2,(y1+y2)//2
-                    tid=int(b.id[0]) if (has_ids and b.id is not None and len(b.id)>0) else None
-                    person_count+=1; heat.append((cx,cy)); pcents.append((cx,cy))
-                    if pt_in(cx,cy,crowd_zone): zone_count+=1
-                    if pt_in(cx,cy,staff_zone): staff_count+=1
-                    if mod_trails and tid is not None:
-                        tr=trails[tid]; tr.append((cx,cy))
-                        if len(tr)>1:
-                            pts=np.array(tr,dtype=np.int32).reshape(-1,1,2)
-                            cv2.polylines(frame,[pts],False,(50,150,70),1,cv2.LINE_AA)
-                    if mod_privacy: faces_blurred+=blur_face(frame,x1,y1,x2,y2)
-                    faces_total+=faces_blurred
-                    # Clean bounding box
-                    cv2.rectangle(frame,(x1,y1),(x2,y2),(0,165,70),1)
-                    if tid is not None:
-                        cv2.putText(frame,f"P{tid}",(x1+2,min(y2-2,y1+11)),
-                                    cv2.FONT_HERSHEY_SIMPLEX,0.28,(0,180,80),1,cv2.LINE_AA)
-
-            # Threats
-            threat_hits=detect_threats(frame,conf_thresh,iou_thresh) if mod_weapon else []
-            for (lbl,coords) in threat_hits:
-                tx1,ty1,tx2,ty2=map(int,coords)
-                highlight_zone(frame,(tx1,ty1,tx2,ty2),f"WEAPON:{lbl.upper()}","CRITICAL")
-                s=snap(frame); add_event("SECURITY","Weapon Detected","CRITICAL",cam_label,f"Detected: {lbl}",s)
-
-            # Abandoned objects
-            if mod_abandoned and frame_idx>int(src_fps*8):
-                try:
-                    ar=model.predict(source=frame,conf=max(conf_thresh,0.25),iou=iou_thresh,imgsz=640,verbose=False)[0]
-                    if ar.boxes is not None:
-                        nm=model.names
-                        for b in ar.boxes:
-                            cid=int(b.cls[0])
-                            if cid==PERSON_CLS: continue
-                            lbl=nm.get(cid,"")
-                            if lbl in THREATS: continue
-                            tid=int(b.id[0]) if (b.id is not None and len(b.id)>0) else None
-                            if tid is None: continue
+                    cid=int(b.cls[0])
+                    conf=float(b.conf[0])
+                    lbl=nm.get(cid,"")
+                    
+                    if cid==PERSON_CLS:
+                        x1,y1,x2,y2=map(int,b.xyxy[0].tolist())
+                        x1,y1=max(0,x1),max(0,y1); x2,y2=min(W-1,x2),min(H-1,y2)
+                        if x2<=x1 or y2<=y1: continue
+                        cx,cy=(x1+x2)//2,(y1+y2)//2
+                        tid=int(b.id[0]) if (has_ids and b.id is not None and len(b.id)>0) else None
+                        person_count+=1; heat.append((cx,cy)); pcents.append((cx,cy))
+                        if pt_in(cx,cy,crowd_zone): zone_count+=1
+                        if pt_in(cx,cy,staff_zone): staff_count+=1
+                        if mod_trails and tid is not None:
+                            tr=trails[tid]; tr.append((cx,cy))
+                            if len(tr)>1:
+                                pts=np.array(tr,dtype=np.int32).reshape(-1,1,2)
+                                cv2.polylines(frame,[pts],False,(50,150,70),1,cv2.LINE_AA)
+                        if mod_privacy: faces_blurred+=blur_face(frame,x1,y1,x2,y2)
+                        faces_total+=faces_blurred
+                        cv2.rectangle(frame,(x1,y1),(x2,y2),(0,165,70),1)
+                        if tid is not None:
+                            cv2.putText(frame,f"P{tid}",(x1+2,min(y2-2,y1+11)),cv2.FONT_HERSHEY_SIMPLEX,0.28,(0,180,80),1,cv2.LINE_AA)
+                            
+                    elif lbl in THREATS and mod_weapon and conf>=max(conf_thresh,0.45):
+                        threat_hits.append((lbl, b.xyxy[0].tolist()))
+                        
+                    elif mod_abandoned and lbl not in THREATS and frame_idx>int(src_fps*8):
+                        tid=int(b.id[0]) if (has_ids and b.id is not None and len(b.id)>0) else None
+                        if tid is not None:
                             rec=obj_tracks[tid]
                             if rec["first"]==0: rec["first"]=frame_idx
                             rec["seen"]+=1
@@ -936,7 +917,12 @@ elif page == "Live Command Center":
                             if age>=10 and nearest>130:
                                 highlight_zone(frame,(bx1,by1,bx2,by2),"UNATTENDED OBJECT","HIGH")
                                 s=snap(frame); add_event("SECURITY","Unattended Object","HIGH",cam_label,f"'{lbl}' static {age:.0f}s",s)
-                except Exception: pass
+
+            # Threats rendering
+            for (lbl,coords) in threat_hits:
+                tx1,ty1,tx2,ty2=map(int,coords)
+                highlight_zone(frame,(tx1,ty1,tx2,ty2),f"WEAPON:{lbl.upper()}","CRITICAL")
+                s=snap(frame); add_event("SECURITY","Weapon Detected","CRITICAL",cam_label,f"Detected: {lbl}",s)
 
             # Heatmap
             if mod_heatmap and len(heat)>5:
@@ -1000,7 +986,7 @@ elif page == "Live Command Center":
                 (mw,_),_=cv2.getTextSize(msg,cv2.FONT_HERSHEY_SIMPLEX,0.46,1)
                 cv2.putText(frame,msg,((W-mw)//2,H-14),cv2.FONT_HERSHEY_SIMPLEX,0.46,(180,30,30),1,cv2.LINE_AA)
 
-            frame_slot.image(cv2.cvtColor(frame,cv2.COLOR_BGR2RGB),channels="RGB",use_container_width=True)
+            frame_slot.image(cv2.cvtColor(frame,cv2.COLOR_BGR2RGB),channels="RGB",width="stretch")
 
             now_t=time.time(); dt_=now_t-t_prev
             proc_fps=(1.0/dt_) if dt_>0 else proc_fps; t_prev=now_t
