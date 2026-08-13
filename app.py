@@ -42,13 +42,15 @@ else:
     if not st.session_state["authenticated"]:
         # ── Login card ──────────────────────────────────────────────────────────
         # Inject scoped CSS once so the container renders as a centred card.
+        # st.container(key=...) applies an "st-key-<key>" class to the wrapper
+        # element, which is what the CSS below actually targets.
         st.markdown("""
         <style>
-        div[data-testid="stVerticalBlockBorderWrapper"].rv-login-card {
+        div[data-testid="stVerticalBlockBorderWrapper"].st-key-rv_login_card {
             max-width: 340px;
             margin: 10vh auto 0;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"].rv-login-card
+        div[data-testid="stVerticalBlockBorderWrapper"].st-key-rv_login_card
             > div[data-testid="stVerticalBlock"] {
             background: #141414;
             border: 1px solid #242424;
@@ -59,7 +61,7 @@ else:
 
         # All login widgets (static header text + inputs) live inside this
         # container, so they are visually part of the same card.
-        with st.container(border=False):
+        with st.container(key="rv_login_card", border=False):
             st.markdown("""
             <div style='font-size:0.60rem;letter-spacing:1.5px;text-transform:uppercase;
             color:#505050;margin-bottom:6px'>CRIS · Ministry of Railways</div>
@@ -1066,8 +1068,11 @@ elif page == "Live Command Center":
                         x1,y1,x2,y2=map(int,b.xyxy[0].tolist())
                         x1,y1=max(0,x1),max(0,y1); x2,y2=min(W-1,x2),min(H-1,y2)
                         w_box, h_box = x2 - x1, y2 - y1
-                        # SIZE FILTER: Reject impossibly small artifacts (<15px) or massive screen-filling glitches
-                        if w_box < 15 or h_box < 30 or w_box > W*0.6 or h_box > H*0.85: continue
+                        # SIZE FILTER: Reject impossibly small artifacts (<15px) or massive screen-filling glitches.
+                        # Exempt boxes touching the bottom frame edge — this indicates a person standing
+                        # close to the camera (common in Live Webcam mode) rather than a detection artifact.
+                        touches_bottom = y2 >= H - 5
+                        if w_box < 15 or h_box < 30 or w_box > W*0.6 or (h_box > H*0.85 and not touches_bottom): continue
                         if x2<=x1 or y2<=y1: continue
                         cx,cy=(x1+x2)//2,(y1+y2)//2
                         tid=int(b.id[0]) if (has_ids and b.id is not None and len(b.id)>0) else None
