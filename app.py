@@ -285,6 +285,15 @@ section[data-testid="stSidebar"] > div {
     font-weight: 400;
 }
 .rv-panel-bd { padding: 0; }
+.rv-log-scroll {
+    max-height: 420px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a #141414;
+}
+.rv-log-scroll::-webkit-scrollbar { width: 5px; }
+.rv-log-scroll::-webkit-scrollbar-track { background: #141414; }
+.rv-log-scroll::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
 
 /* ── Metric card ── */
 .rv-metric {
@@ -806,7 +815,7 @@ if page == "Alerts & Security":
     left, right = st.columns([1.1, 1], gap="small")
 
     with left:
-        st.markdown(panel("Incident Log", alerts_html(sec_ev, 20), right=str(len(sec_ev))),
+        st.markdown(panel("Incident Log", f"<div class='rv-log-scroll'>{alerts_html(sec_ev, 20)}</div>", right=str(len(sec_ev))),
                     unsafe_allow_html=True)
         if sec_ev:
             df = pd.DataFrame(sec_ev).drop(columns=["Cat","SnapID"], errors="ignore")
@@ -907,9 +916,10 @@ elif page == "Live Command Center":
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        st.markdown('<div class="rv-panel"><div class="rv-panel-hd">Incident Log</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rv-panel"><div class="rv-panel-hd">Incident Log</div><div class="rv-log-scroll">', unsafe_allow_html=True)
         incident_slot = st.empty()
         incident_slot.markdown("<div class='rv-empty'>No incidents.</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Upload & start
@@ -1123,7 +1133,7 @@ elif page == "Live Command Center":
             ]), unsafe_allow_html=True)
 
             evts=st.session_state["events"]
-            incident_slot.markdown(alerts_html(evts, 8), unsafe_allow_html=True)
+            incident_slot.markdown(f"<div class='rv-log-scroll'>{alerts_html(evts, 8)}</div>", unsafe_allow_html=True)
 
             st.session_state["live"]={"people":person_count,"zone":zone_count,"risk":risk}
             hist=st.session_state["history"]
