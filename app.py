@@ -520,9 +520,9 @@ with st.sidebar:
     st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#686868;padding:6px 0 6px'>Detection</div>", unsafe_allow_html=True)
     model_opt   = st.selectbox("Model", [
         "yolo11n.pt   Nano",
-        "yolo11s.pt   Small ✓",
-        "yolo11m.pt   Medium",
-    ], index=1)
+        "yolo11s.pt   Small",
+        "yolo11m.pt   Medium ✓",
+    ], index=2)
     model_name  = model_opt.split()[0]
     cam_label   = st.text_input("Camera ID", "NDLS-P1-C04")
     conf_thresh = st.slider("Confidence",          0.05, 0.80, 0.15, 0.05)
@@ -905,12 +905,12 @@ elif page == "Live Command Center":
         st.markdown('<div class="rv-panel"><div class="rv-panel-hd">Station Status</div>', unsafe_allow_html=True)
         status_slot = st.empty()
         status_slot.markdown(status_rows([
+            ("Threat Status",    "CLEAR",   "g"),
             ("Crowd Status",     "STANDBY", "m"),
             ("Zone Count",       "—",       ""),
             ("Total Persons",    "—",       ""),
-            ("Faces Blurred",    "—",       ""),
             ("Staff Post",       "—",       ""),
-            ("Threat Status",    "CLEAR",   "g"),
+            ("Faces Blurred",    "—",       ""),
             ("AI Engine",        "IDLE",    "m"),
         ]), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1123,12 +1123,12 @@ elif page == "Live Command Center":
             sp_val="OCCUPIED" if staff_count>0 else ("VACANT" if staff_empty>int(src_fps*7) else "EMPTY")
             th_v,th_c = ("⚠ DETECTED","r") if threat_hits else ("CLEAR","g")
             status_slot.markdown(status_rows([
+                ("Threat Status",    th_v,            th_c),
                 ("Crowd Status",     risk,           rl),
                 ("Zone Count",       str(zone_count), ""),
                 ("Total Persons",    str(person_count),""),
-                ("Faces Blurred",    str(faces_blurred),""),
                 ("Staff Post",       sp_val,          sp_cls),
-                ("Threat Status",    th_v,            th_c),
+                ("Faces Blurred",    str(faces_blurred),""),
                 ("AI Engine",        "● ACTIVE",      "g"),
             ]), unsafe_allow_html=True)
 
