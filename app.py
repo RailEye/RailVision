@@ -4,6 +4,7 @@ Minimalist Command-Center Interface
 Ministry of Railways · CRIS · Integrated CCTV Intelligence
 """
 import streamlit as st
+import html as _html
 import cv2
 import numpy as np
 import pandas as pd
@@ -421,7 +422,7 @@ div[data-testid="stDataFrame"] > div {
 for k, v in {
     "events": [], "total_alerts": 0, "last_alert": {},
     "history": [], "live": {"people": 0, "zone": 0, "risk": "—"},
-    "snapshots": [],
+    "snapshots": [], "stop_requested": False, "detection_warning": False,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -465,7 +466,7 @@ with st.sidebar:
 
     st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#383838;padding:6px 0 6px'>Modules</div>", unsafe_allow_html=True)
     mod_privacy    = st.checkbox("Face anonymisation",   True)
-    mod_heatmap    = st.checkbox("Density heatmap",      True)
+    mod_heatmap    = st.checkbox("Density heatmap",      False)
     mod_trails     = st.checkbox("Movement trails",      True)
     mod_restricted = st.checkbox("Restricted zone",      True)
     mod_abandoned  = st.checkbox("Abandoned objects",    True)
@@ -564,7 +565,9 @@ def detect_all(frame, conf, iou):
     try: return model.track(persist=True,tracker=tr,**kw)[0], True
     except Exception: pass
     try: return model.predict(**kw)[0], False
-    except Exception: return None, False
+    except Exception:
+        st.session_state["detection_warning"] = True
+        return None, False
 
 def blur_face(frame, x1, y1, x2, y2):
     crop=frame[y1:y2,x1:x2]
@@ -613,8 +616,9 @@ def tabs_html(active):
         f'<span class="rv-tab{"  on" if p == active else ""}">{lbl}</span>'
         for p, lbl in defs
     )
+    _cam_safe = _html.escape(cam_label)
     return f"""<div class='rv-tabs'>{t}
-      <span class='rv-tab-right'>{cam_label} &nbsp;·&nbsp; {dt.datetime.now().strftime('%H:%M')}</span>
+      <span class='rv-tab-right'>{_cam_safe} &nbsp;·&nbsp; {dt.datetime.now().strftime('%H:%M')}</span>
     </div>"""
 
 def statstrip_html(p, z, r, a, fps, faces):
@@ -652,12 +656,15 @@ def alerts_html(events, n=10):
     rows = ""
     for e in events[:n]:
         c = sc.get(e.get("Severity",""), "low")
+        _evt  = _html.escape(str(e.get('Event','')))
+        _det  = _html.escape(str(e.get('Details',''))[:72])
+        _cam  = _html.escape(str(e.get('Camera','')))
         rows += f"""<div class='rv-alert'>
           <div class='rv-alert-sev'><span class='rv-sev-badge sev-{c}'>{e.get('Severity','')}</span></div>
           <div class='rv-alert-body'>
-            <div class='rv-alert-evt'>{e.get('Event','')}</div>
-            <div class='rv-alert-det'>{str(e.get('Details',''))[:72]}</div>
-            <div class='rv-alert-meta'>{e.get('Time','')} · {e.get('Camera','')}</div>
+            <div class='rv-alert-evt'>{_evt}</div>
+            <div class='rv-alert-det'>{_det}</div>
+            <div class='rv-alert-meta'>{e.get('Time','')} · {_cam}</div>
           </div>
         </div>"""
     if not rows:
@@ -792,7 +799,7 @@ elif page == "Live Command Center":
     feed_col, info_col = st.columns([2.6, 1], gap="small")
 
     with feed_col:
-        st.markdown('<div class="rv-panel"><div class="rv-panel-hd">Live CCTV — ' + cam_label + '</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rv-panel"><div class="rv-panel-hd">Live CCTV — ' + _html.escape(cam_label) + '</div>', unsafe_allow_html=True)
         frame_slot = st.empty()
         frame_slot.markdown("""<div class='rv-feed-wrap'><div class='rv-no-signal'>
           <div class='ns-icon'>⬛</div>
@@ -828,11 +835,16 @@ elif page == "Live Command Center":
                                    label_visibility="collapsed")
 
     start = st.button("▶  Start AI Processing", type="primary", width="stretch")
+    if st.button("■ Stop", key="btn_stop"):
+        st.session_state["stop_requested"] = True
     st.markdown("</div>", unsafe_allow_html=True)
 
     if start:
         if source == "Upload Recording" and not upload:
             st.warning("No video selected."); st.stop()
+
+        st.session_state["stop_requested"] = False
+        st.session_state["detection_warning"] = False
 
         tmp_path = None
         if source == "Upload Recording":
@@ -848,6 +860,7 @@ elif page == "Live Command Center":
         src_fps  = cap.get(cv2.CAP_PROP_FPS) or 25.0
         total_fr = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         prog     = st.progress(0, "Processing…") if total_fr > 0 else None
+        warn_slot = st.empty()
 
         heat=deque(maxlen=10000); obj_tracks=defaultdict(lambda:{"first":0,"seen":0})
         trails=defaultdict(lambda:deque(maxlen=45))
@@ -856,7 +869,10 @@ elif page == "Live Command Center":
         st.session_state["history"]=[]
         HUD=72
 
-        while cap.isOpened():
+        try:
+          while cap.isOpened():
+            if st.session_state.get("stop_requested", False):
+                break
             ret, frame = cap.read()
             if not ret: break
             frame_idx += 1
@@ -871,6 +887,11 @@ elif page == "Live Command Center":
             staff_zone=(int(W*0.68),int(H*0.60),int(W*0.97),int(H*0.95))
 
             result,has_ids=detect_all(frame,conf_thresh,iou_thresh)
+            if st.session_state.get("detection_warning", False):
+                warn_slot.warning("⚠ Detection failed on this frame — retrying next frame.")
+                st.session_state["detection_warning"] = False
+            else:
+                warn_slot.empty()
             person_count=0; zone_count=0; staff_count=0; faces_blurred=0; pcents=[]
             threat_hits=[]
 
@@ -896,7 +917,6 @@ elif page == "Live Command Center":
                                 pts=np.array(tr,dtype=np.int32).reshape(-1,1,2)
                                 cv2.polylines(frame,[pts],False,(50,150,70),1,cv2.LINE_AA)
                         if mod_privacy: faces_blurred+=blur_face(frame,x1,y1,x2,y2)
-                        faces_total+=faces_blurred
                         cv2.rectangle(frame,(x1,y1),(x2,y2),(0,165,70),1)
                         if tid is not None:
                             cv2.putText(frame,f"P{tid}",(x1+2,min(y2-2,y1+11)),cv2.FONT_HERSHEY_SIMPLEX,0.28,(0,180,80),1,cv2.LINE_AA)
@@ -917,6 +937,8 @@ elif page == "Live Command Center":
                             if age>=10 and nearest>130:
                                 highlight_zone(frame,(bx1,by1,bx2,by2),"UNATTENDED OBJECT","HIGH")
                                 s=snap(frame); add_event("SECURITY","Unattended Object","HIGH",cam_label,f"'{lbl}' static {age:.0f}s",s)
+
+            faces_total += faces_blurred
 
             # Threats rendering
             for (lbl,coords) in threat_hits:
@@ -954,7 +976,7 @@ elif page == "Live Command Center":
                 risk,rc_cv="CRITICAL",(150,0,0)
                 highlight_zone(frame,crowd_zone,"OVERCROWDING","CRITICAL")
                 s=snap(frame); add_event("CROWD","Overcrowding","HIGH",cam_label,f"{zone_count} in zone (limit {crowd_limit})",s)
-            elif zone_count>=max(1,int(crowd_limit*0.70)):
+            elif zone_count>=max(1, min(crowd_limit - 1, int(crowd_limit * 0.70))):
                 risk,rc_cv="WARNING",(20,100,185)
                 highlight_zone(frame,crowd_zone,"CROWD WARNING","MEDIUM")
             else:
@@ -1018,11 +1040,12 @@ elif page == "Live Command Center":
 
             if prog and total_fr>0: prog.progress(min(frame_idx/total_fr,1.0))
 
-        cap.release()
-        if prog: prog.empty()
-        if tmp_path:
-            try: Path(tmp_path).unlink(missing_ok=True)
-            except Exception: pass
+        finally:
+            cap.release()
+            if prog: prog.empty()
+            if tmp_path:
+                try: Path(tmp_path).unlink(missing_ok=True)
+                except Exception: pass
         stat_slot.markdown(statstrip_html(person_count,zone_count,"COMPLETE",
                            st.session_state["total_alerts"],0,faces_total), unsafe_allow_html=True)
         st.success(f"Complete — {frame_idx} frames analysed.")
