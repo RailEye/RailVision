@@ -631,6 +631,29 @@ def add_event(cat, evt, sev, cam, detail, snap_b64=None):
 
 seed_demo_events()
 
+def forecast_zone_count(hist, horizon_min=10, window=20):
+    """
+    Simple linear-trend forecast of 'zone' occupancy from recent history.
+    hist: list of {"t","people","zone"} dicts, chronological order (oldest first).
+    Returns (projected_value:int, trend:str) where trend is 'rising','falling','steady'.
+    Returns (None, None) if there isn't enough data to forecast.
+    """
+    if len(hist) < 5:
+        return None, None
+    recent = hist[-window:] if len(hist) > window else hist
+    ys = np.array([h["zone"] for h in recent], dtype=float)
+    xs = np.arange(len(ys), dtype=float)
+    slope, intercept = np.polyfit(xs, ys, 1)
+    projected = intercept + slope * (len(ys) - 1 + horizon_min)
+    projected = max(0, round(projected))
+    if abs(slope) < 0.02:
+        trend = "steady"
+    elif slope > 0:
+        trend = "rising"
+    else:
+        trend = "falling"
+    return projected, trend
+
 def pt_in(cx, cy, b): x1,y1,x2,y2=b; return x1<=cx<=x2 and y1<=cy<=y2
 
 def draw_zone(img, box, label, color, alpha=0.06):
@@ -883,6 +906,22 @@ elif page == "Station Analytics":
             st.line_chart(df_h, height=190, width="stretch")
         else:
             st.markdown("<div class='rv-empty'>Awaiting data from Live Command Center.</div>", unsafe_allow_html=True)
+        st.markdown("</div></div>", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        st.markdown('<div class="rv-panel"><div class="rv-panel-hd">Projected Crowd Trend (next 10 min)</div><div class="rv-panel-bd" style="padding:8px">', unsafe_allow_html=True)
+        proj, trend = forecast_zone_count(hist)
+        if proj is None:
+            st.markdown("<div class='rv-empty'>Not enough data yet to forecast.</div>", unsafe_allow_html=True)
+        else:
+            trend_color = {"rising": "#b03030", "falling": "#2f7a3d", "steady": "#585858"}.get(trend, "#585858")
+            trend_label = {"rising": "▲ Rising", "falling": "▼ Falling", "steady": "● Steady"}.get(trend, trend)
+            st.markdown(
+                f"<div style='font-size:1.6rem;font-weight:600;color:#f0f0f0'>{proj} <span style='font-size:0.8rem;font-weight:400;color:#585858'>people in zone (est.)</span></div>"
+                f"<div style='font-size:0.75rem;color:{trend_color};margin-top:4px'>{trend_label}</div>"
+                f"<div style='font-size:0.65rem;color:#585858;margin-top:8px'>Linear projection from the last {min(len(hist),20)} readings. Indicative only — not a guarantee.</div>",
+                unsafe_allow_html=True
+            )
         st.markdown("</div></div>", unsafe_allow_html=True)
 
     with tr:
@@ -1169,10 +1208,17 @@ elif page == "Live Command Center":
 
         finally:
             cap.release()
-            if prog: prog.empty()
+            try:
+                if prog: prog.empty()
+            except Exception: pass
             if tmp_path:
                 try: Path(tmp_path).unlink(missing_ok=True)
                 except Exception: pass
-        stat_slot.markdown(statstrip_html(person_count,zone_count,"COMPLETE",
-                           st.session_state["total_alerts"],0,faces_total), unsafe_allow_html=True)
-        st.success(f"Complete — {frame_idx} frames analysed.")
+        
+        try:
+            stat_slot.markdown(statstrip_html(person_count,zone_count,"COMPLETE",
+                               st.session_state["total_alerts"],0,faces_total), unsafe_allow_html=True)
+            if not st.session_state.get("stop_requested", False):
+                st.success(f"Complete — {frame_idx} frames analysed.")
+        except Exception:
+            pass
