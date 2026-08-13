@@ -3,19 +3,19 @@
 AI-powered CCTV analytics prototype for railway-station surveillance.
 
 ## Included
-- CCTV video upload (`.mp4`, `.avi`, `.mov`, `.mkv`)
-- Webcam mode
-- YOLO person detection
-- Persistent person tracking (BoT-SORT through Ultralytics)
-- Crowd counting and configurable overcrowding alerts
-- Region-of-interest (ROI) crowd density analysis
-- Approximate crowd heatmap
+- CCTV video upload (`.mp4`, `.avi`, `.mov`, `.mkv`) and Webcam mode
+- Advanced YOLO11 object detection (Defaults to `yolo11m.pt` for high accuracy)
+- Precision AI Filtering: Bounding box size filtering and 5-frame temporal smoothing to eliminate false alarms
+- Persistent person tracking (BoT-SORT)
+- Crowd counting, configurable overcrowding alerts, and ROI density analysis
+- Short-term Crowd Trend Forecasting (Linear projection of zone occupancy)
+- Approximate crowd heatmap & movement trails
 - Privacy mode using OpenCV face detection + blur
-- Restricted-zone entry alerts
-- Simple abandoned-object heuristic using tracked non-person objects
-- Incident/event log
-- CSV export
-- Dashboard with live analytics
+- Track Intrusion / Platform-edge crossing detection
+- Restricted-zone entry alerts & Staff post monitoring
+- Weapon detection & simple abandoned-object heuristic
+- Seeded interactive Incident Log for demo readiness, with CSV export
+- Dark-mode Operations Dashboard with live analytics
 - No raw video is written to disk by the application
 
 ## Windows + VS Code
@@ -51,24 +51,23 @@ streamlit run app.py
 
 7. Open the displayed local address, normally `http://localhost:8501`.
 
-The first run downloads the YOLO model (`yolo11n.pt`) automatically from Ultralytics.
+The first run downloads the YOLO models (including the default `yolo11m.pt`) automatically from Ultralytics.
 
 ## Demo workflow
 
-1. Choose **Upload CCTV video**.
-2. Upload a railway/station/crowd video.
-3. Set the crowd threshold low enough for the demo.
-4. Enable **Privacy Mode**.
-5. Start processing.
-6. Show:
-   - person count
-   - tracked IDs
-   - crowd risk
-   - ROI
-   - heatmap
-   - restricted-zone alert
-   - incident log
-7. Export the incident log as CSV.
+1. Open the app to immediately see the **Seeded Demo Events** in the Incident Log (shows the app in an active state).
+2. Choose **Upload Recording** and upload a railway/station/crowd video.
+3. Ensure **Model** is set to `yolo11m.pt Medium ✓` for maximum accuracy.
+4. Set the crowd threshold low enough for the demo.
+5. Enable **Face anonymisation** and **Track intrusion**.
+6. Click **Start AI Processing**.
+7. Show:
+   - Live AI Engine filtering out glitches (temporal smoothing)
+   - Real-time person count & Crowd trend forecasts on the Analytics tab
+   - Tracked IDs & Movement trails
+   - Track intrusion & Restricted-zone alerts
+   - Live Incident Log
+8. Export the incident log as CSV.
 
 ## Important prototype limitations
 
