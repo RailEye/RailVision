@@ -7,3 +7,5 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: APP_PASSWORD
+        sync: false   # Set the actual value in the Render dashboard — never commit it here

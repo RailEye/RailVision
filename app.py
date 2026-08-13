@@ -23,6 +23,41 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ─── AUTH GATE ─────────────────────────────────────────────────────────────────
+# Set APP_PASSWORD in st.secrets (secrets.toml) or as an environment variable.
+# If neither is configured the gate is skipped with a warning (safe for local dev).
+import os as _os
+try:
+    _pwd_required = st.secrets.get("APP_PASSWORD", _os.environ.get("APP_PASSWORD", ""))
+except Exception:
+    # No secrets.toml present — fall back to environment variable only.
+    _pwd_required = _os.environ.get("APP_PASSWORD", "")
+if _pwd_required:
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+    if not st.session_state["authenticated"]:
+        st.markdown("""
+        <div style='max-width:340px;margin:10vh auto;background:#141414;border:1px solid #242424;
+        border-radius:4px;padding:32px 28px'>
+          <div style='font-size:0.60rem;letter-spacing:1.5px;text-transform:uppercase;
+          color:#505050;margin-bottom:6px'>CRIS · Ministry of Railways</div>
+          <div style='font-size:1.1rem;font-weight:600;color:#f0f0f0;
+          margin-bottom:4px'>RailVision</div>
+          <div style='font-size:0.70rem;color:#505050;margin-bottom:20px'>
+          Authorised access only · Classification: Restricted</div>
+        </div>""", unsafe_allow_html=True)
+        _entered = st.text_input("Access code", type="password",
+                                  placeholder="Enter access code",
+                                  label_visibility="collapsed")
+        if st.button("Authenticate", type="primary"):
+            if _entered == _pwd_required:
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Invalid access code.")
+        st.stop()
+
+
 # ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
 # bg=#0c0c0c  surface=#141414  surface2=#1c1c1c  border=#242424
 # text=#f0f0f0  text2=#a0a0a0  text3=#505050
@@ -156,7 +191,7 @@ section[data-testid="stSidebar"] > div {
     float: right;
     font-family: 'SF Mono', Consolas, monospace;
     font-size: 0.65rem;
-    color: #303030;
+    color: #585858;
     padding-top: 11px;
 }
 
@@ -223,7 +258,7 @@ section[data-testid="stSidebar"] > div {
     display: table-cell;
     text-align: right;
     font-family: 'SF Mono', Consolas, monospace;
-    color: #303030;
+    color: #585858;
     font-weight: 400;
 }
 .rv-panel-bd { padding: 0; }
@@ -316,7 +351,7 @@ section[data-testid="stSidebar"] > div {
 .rv-alert-det { font-size: 0.70rem; color: #606060 !important; margin-top: 2px; }
 .rv-alert-meta {
     font-size: 0.62rem;
-    color: #383838 !important;
+    color: #686868 !important;
     margin-top: 3px;
     font-family: 'SF Mono', Consolas, monospace;
 }
@@ -361,14 +396,14 @@ section[data-testid="stSidebar"] > div {
 }
 .rv-banner-title-r { font-size: 0.95rem; font-weight: 600; color: #dc2626; }
 .rv-banner-title-b { font-size: 0.95rem; font-weight: 600; color: #3b82f6; }
-.rv-banner-sub { font-size: 0.70rem; color: #383838 !important; margin-top: 3px; }
+.rv-banner-sub { font-size: 0.70rem; color: #686868 !important; margin-top: 3px; }
 
 /* ── Empty state ── */
 .rv-empty {
     padding: 36px 16px;
     text-align: center;
     font-size: 0.76rem;
-    color: #303030;
+    color: #585858;
 }
 
 /* ── Streamlit native overrides ── */
@@ -438,7 +473,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     st.divider()
 
-    st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#383838;padding:6px 0 6px'>Navigation</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#686868;padding:6px 0 6px'>Navigation</div>", unsafe_allow_html=True)
     page = st.radio("nav", [
         "Live Command Center",
         "Alerts & Security",
@@ -446,11 +481,11 @@ with st.sidebar:
     ], label_visibility="collapsed")
     st.divider()
 
-    st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#383838;padding:6px 0 6px'>Source</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#686868;padding:6px 0 6px'>Source</div>", unsafe_allow_html=True)
     source = st.radio("src", ["Upload Recording", "Live Webcam"], label_visibility="collapsed")
     st.divider()
 
-    st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#383838;padding:6px 0 6px'>Detection</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#686868;padding:6px 0 6px'>Detection</div>", unsafe_allow_html=True)
     model_opt   = st.selectbox("Model", [
         "yolo11n.pt   Nano",
         "yolo11s.pt   Small ✓",
@@ -464,7 +499,7 @@ with st.sidebar:
     skip_n      = st.slider("Frame skip",          1,    3,    1)
     st.divider()
 
-    st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#383838;padding:6px 0 6px'>Modules</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:#686868;padding:6px 0 6px'>Modules</div>", unsafe_allow_html=True)
     mod_privacy    = st.checkbox("Face anonymisation",   True)
     mod_heatmap    = st.checkbox("Density heatmap",      False)
     mod_trails     = st.checkbox("Movement trails",      True)
@@ -474,7 +509,7 @@ with st.sidebar:
     mod_staff      = st.checkbox("Staff post monitor",   True)
     st.divider()
 
-    st.markdown("<div style='font-size:0.58rem;color:#303030;line-height:1.8;font-family:SF Mono,Consolas,monospace'>SYS: CRIS-ICIS-0392<br>ZONE: NORTHERN RAILWAY<br>ACCESS: RESTRICTED</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.58rem;color:#585858;line-height:1.8;font-family:SF Mono,Consolas,monospace'>SYS: CRIS-ICIS-0392<br>ZONE: NORTHERN RAILWAY<br>ACCESS: RESTRICTED</div>", unsafe_allow_html=True)
 
 # ─── AI MODEL ─────────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Loading model…")
@@ -845,6 +880,12 @@ elif page == "Live Command Center":
 
         st.session_state["stop_requested"] = False
         st.session_state["detection_warning"] = False
+        # Reset tracker state so this session's IDs never bleed into another session's run.
+        # model is @st.cache_resource (shared), but predictor holds per-run tracker state.
+        try:
+            model.predictor = None
+        except Exception:
+            pass
 
         tmp_path = None
         if source == "Upload Recording":
