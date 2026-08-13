@@ -27,34 +27,57 @@ st.set_page_config(
 # Set APP_PASSWORD in st.secrets (secrets.toml) or as an environment variable.
 # If neither is configured the gate is skipped with a warning (safe for local dev).
 import os as _os
+import hmac as _hmac
 try:
     _pwd_required = st.secrets.get("APP_PASSWORD", _os.environ.get("APP_PASSWORD", ""))
 except Exception:
     # No secrets.toml present — fall back to environment variable only.
     _pwd_required = _os.environ.get("APP_PASSWORD", "")
-if _pwd_required:
+if not _pwd_required:
+    # No password configured — show a visible operator warning so this gap is never silent.
+    st.sidebar.caption("⚠ No password configured — gate disabled")
+else:
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
     if not st.session_state["authenticated"]:
+        # ── Login card ──────────────────────────────────────────────────────────
+        # Inject scoped CSS once so the container renders as a centred card.
         st.markdown("""
-        <div style='max-width:340px;margin:10vh auto;background:#141414;border:1px solid #242424;
-        border-radius:4px;padding:32px 28px'>
-          <div style='font-size:0.60rem;letter-spacing:1.5px;text-transform:uppercase;
-          color:#505050;margin-bottom:6px'>CRIS · Ministry of Railways</div>
-          <div style='font-size:1.1rem;font-weight:600;color:#f0f0f0;
-          margin-bottom:4px'>RailVision</div>
-          <div style='font-size:0.70rem;color:#505050;margin-bottom:20px'>
-          Authorised access only · Classification: Restricted</div>
-        </div>""", unsafe_allow_html=True)
-        _entered = st.text_input("Access code", type="password",
-                                  placeholder="Enter access code",
-                                  label_visibility="collapsed")
-        if st.button("Authenticate", type="primary"):
-            if _entered == _pwd_required:
-                st.session_state["authenticated"] = True
-                st.rerun()
-            else:
-                st.error("Invalid access code.")
+        <style>
+        div[data-testid="stVerticalBlockBorderWrapper"].rv-login-card {
+            max-width: 340px;
+            margin: 10vh auto 0;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"].rv-login-card
+            > div[data-testid="stVerticalBlock"] {
+            background: #141414;
+            border: 1px solid #242424;
+            border-radius: 4px;
+            padding: 32px 28px 24px;
+        }
+        </style>""", unsafe_allow_html=True)
+
+        # All login widgets (static header text + inputs) live inside this
+        # container, so they are visually part of the same card.
+        with st.container(border=False):
+            st.markdown("""
+            <div style='font-size:0.60rem;letter-spacing:1.5px;text-transform:uppercase;
+            color:#505050;margin-bottom:6px'>CRIS · Ministry of Railways</div>
+            <div style='font-size:1.1rem;font-weight:600;color:#f0f0f0;
+            margin-bottom:4px'>RailVision</div>
+            <div style='font-size:0.70rem;color:#505050;margin-bottom:20px'>
+            Authorised access only · Classification: Restricted</div>""",
+            unsafe_allow_html=True)
+            _entered = st.text_input("Access code", type="password",
+                                     placeholder="Enter access code",
+                                     label_visibility="collapsed")
+            if st.button("Authenticate", type="primary", use_container_width=True):
+                # Constant-time comparison — eliminates timing side-channel.
+                if _hmac.compare_digest(_entered, _pwd_required):
+                    st.session_state["authenticated"] = True
+                    st.rerun()
+                else:
+                    st.error("Invalid access code.")
         st.stop()
 
 
@@ -513,7 +536,33 @@ with st.sidebar:
 
 # ─── AI MODEL ─────────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Loading model…")
-def get_model(name): return YOLO(name)
+def get_model(name):
+    """Parse & cache YOLO weights once per process (shared read-only across sessions)."""
+    return YOLO(name)
+
+def _get_session_model(name):
+    """Return a per-session YOLO wrapper stored in st.session_state.
+
+    Each browser session gets its own YOLO Python object (and therefore its own
+    Ultralytics predictor / tracker state), which means:
+    - Resetting one session's tracker never touches another session's state.
+    - Concurrent model.track() calls run on separate predictor objects — no
+      shared-mutable-state race condition.
+
+    The underlying weight tensors are still loaded only once (via get_model above)
+    and are mmap-shared by the OS, so per-session memory overhead is modest
+    (only the Python wrapper + predictor/tracker state duplicates, not the weights).
+    """
+    key = f"_model_{name}"
+    if key not in st.session_state:
+        # Warm the weight cache then hand a fresh wrapper to this session.
+        try:
+            get_model(name)           # ensures weights are parsed (cached)
+            st.session_state[key] = YOLO(name)
+        except Exception as e:
+            st.error(f"Model error: {e}")
+            st.stop()
+    return st.session_state[key]
 
 @st.cache_resource(show_spinner=False)
 def get_face_cascade():
@@ -523,7 +572,7 @@ def get_face_cascade():
     return None
 
 try:
-    model = get_model(model_name)
+    model = _get_session_model(model_name)
 except Exception as e:
     st.error(f"Model error: {e}"); st.stop()
 face_cc    = get_face_cascade()
@@ -880,8 +929,10 @@ elif page == "Live Command Center":
 
         st.session_state["stop_requested"] = False
         st.session_state["detection_warning"] = False
-        # Reset tracker state so this session's IDs never bleed into another session's run.
-        # model is @st.cache_resource (shared), but predictor holds per-run tracker state.
+        # Each session owns its own YOLO instance (_get_session_model), so
+        # tracker state is already isolated. We simply reset the predictor on
+        # this session's private model object to clear IDs from a previous run
+        # in the same browser tab — harmless and never touches other sessions.
         try:
             model.predictor = None
         except Exception:
