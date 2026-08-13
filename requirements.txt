@@ -4,3 +4,4 @@ opencv-python-headless>=4.10
 numpy>=1.26
 pandas>=2.2
 Pillow>=10
+lapx>=0.5.5
