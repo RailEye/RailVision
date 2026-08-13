@@ -494,6 +494,7 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
+
 # ─── SIDEBAR ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
@@ -536,6 +537,7 @@ with st.sidebar:
     mod_heatmap    = st.checkbox("Density heatmap",      False)
     mod_trails     = st.checkbox("Movement trails",      True)
     mod_restricted = st.checkbox("Restricted zone",      True)
+    mod_track      = st.checkbox("Track intrusion",      True)
     mod_abandoned  = st.checkbox("Abandoned objects",    True)
     mod_weapon     = st.checkbox("Weapon detection",     True)
     mod_staff      = st.checkbox("Staff post monitor",   True)
@@ -592,6 +594,19 @@ PERSON_CLS = 0
 def _ts():  return dt.datetime.now().strftime("%H:%M:%S")
 def _dts(): return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+def seed_demo_events():
+    if st.session_state.get("_demo_seeded"): return
+    st.session_state["_demo_seeded"] = True
+    if st.session_state["events"]: return  # never overwrite real data
+    demo = [
+        ("CROWD", "Overcrowding", "HIGH", "NDLS-P1-C04", "18 in zone (limit 15)"),
+        ("SECURITY", "Restricted Zone Intrusion", "HIGH", "NDLS-P3-C02", "1 person(s)"),
+        ("OPERATIONS", "Staff Post Unattended", "MEDIUM", "NDLS-P2-C01", "Post vacant >7s"),
+        ("SECURITY", "Weapon Detected", "CRITICAL", "NDLS-P1-C04", "Detected: knife"),
+    ]
+    for cat, evt, sev, cam, detail in demo:
+        add_event(cat, evt, sev, cam, detail, snap_b64=None)
+
 def add_event(cat, evt, sev, cam, detail, snap_b64=None):
     key = f"{cat}|{evt}|{cam}"; now = time.time()
     deb = 2 if sev == "CRITICAL" else 5
@@ -613,6 +628,8 @@ def add_event(cat, evt, sev, cam, detail, snap_b64=None):
         })
         st.session_state["snapshots"] = st.session_state["snapshots"][:60]
     return True
+
+seed_demo_events()
 
 def pt_in(cx, cy, b): x1,y1,x2,y2=b; return x1<=cx<=x2 and y1<=cy<=y2
 
@@ -987,6 +1004,7 @@ elif page == "Live Command Center":
             crowd_zone=(int(W*0.05),HUD+int((H-HUD)*0.04),int(W*0.95),int(H*0.92))
             restr_zone=(int(W*0.02),HUD,int(W*0.28),HUD+int((H-HUD)*0.42))
             staff_zone=(int(W*0.68),int(H*0.60),int(W*0.97),int(H*0.95))
+            track_zone=(int(W*0.02), int(H*0.90), int(W*0.98), int(H*0.99))
 
             result,has_ids=detect_all(frame,conf_thresh,iou_thresh)
             if st.session_state.get("detection_warning", False):
@@ -1060,6 +1078,7 @@ elif page == "Live Command Center":
             draw_zone(frame,crowd_zone,"CROWD ZONE",(180,130,0))
             if mod_staff:      draw_zone(frame,staff_zone,"STAFF POST",(0,140,190))
             if mod_restricted: draw_zone(frame,restr_zone,"RESTRICTED",(150,0,0))
+            if mod_track:      draw_zone(frame,track_zone,"TRACK ZONE",(0,0,150))
 
             # Triggers
             if mod_restricted:
@@ -1067,6 +1086,12 @@ elif page == "Live Command Center":
                 if rz:
                     highlight_zone(frame,restr_zone,"RESTRICTED ZONE BREACH","HIGH")
                     s=snap(frame); add_event("SECURITY","Restricted Zone Intrusion","HIGH",cam_label,f"{rz} person(s)",s)
+
+            if mod_track:
+                tz=sum(1 for cx,cy in pcents if pt_in(cx,cy,track_zone))
+                if tz:
+                    highlight_zone(frame,track_zone,"TRACK INTRUSION","CRITICAL")
+                    s=snap(frame); add_event("SECURITY","Track Intrusion","CRITICAL",cam_label,f"{tz} person(s) near track edge",s)
 
             if mod_staff:
                 staff_empty=staff_empty+1 if staff_count==0 else 0
