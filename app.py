@@ -1022,6 +1022,7 @@ elif page == "Live Command Center":
 
         heat=deque(maxlen=10000); obj_tracks=defaultdict(lambda:{"first":0,"seen":0})
         trails=defaultdict(lambda:deque(maxlen=45))
+        count_history=deque(maxlen=5)  # Temporal smoothing buffer
         frame_idx=0; staff_empty=0; t_prev=time.time()
         proc_fps=0.0; faces_total=0; person_count=0; zone_count=0; risk="—"
         st.session_state["history"]=[]
@@ -1064,6 +1065,9 @@ elif page == "Live Command Center":
                     if cid==PERSON_CLS:
                         x1,y1,x2,y2=map(int,b.xyxy[0].tolist())
                         x1,y1=max(0,x1),max(0,y1); x2,y2=min(W-1,x2),min(H-1,y2)
+                        w_box, h_box = x2 - x1, y2 - y1
+                        # SIZE FILTER: Reject impossibly small artifacts (<15px) or massive screen-filling glitches
+                        if w_box < 15 or h_box < 30 or w_box > W*0.6 or h_box > H*0.85: continue
                         if x2<=x1 or y2<=y1: continue
                         cx,cy=(x1+x2)//2,(y1+y2)//2
                         tid=int(b.id[0]) if (has_ids and b.id is not None and len(b.id)>0) else None
@@ -1096,6 +1100,11 @@ elif page == "Live Command Center":
                             if age>=10 and nearest>130:
                                 highlight_zone(frame,(bx1,by1,bx2,by2),"UNATTENDED OBJECT","HIGH")
                                 s=snap(frame); add_event("SECURITY","Unattended Object","HIGH",cam_label,f"'{lbl}' static {age:.0f}s",s)
+
+            # TEMPORAL SMOOTHING: Rolling average over last 5 frames to eliminate flickering numbers
+            count_history.append((person_count, zone_count))
+            person_count = int(np.mean([x[0] for x in count_history]))
+            zone_count = int(np.mean([x[1] for x in count_history]))
 
             faces_total += faces_blurred
 
